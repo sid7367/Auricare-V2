@@ -1,42 +1,48 @@
-import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { HelmetProvider } from "react-helmet-async";
-import { RoleAuthProvider, useRoleAuth } from "@/hooks/useRoleAuth";
+import {Toaster} from "@/components/ui/toaster";
+import {Toaster as Sonner} from "@/components/ui/sonner";
+import {TooltipProvider} from "@/components/ui/tooltip";
+import {QueryClient, QueryClientProvider} from "@tanstack/react-query";
+import {BrowserRouter, Routes, Route} from "react-router-dom";
+import {HelmetProvider} from "react-helmet-async";
+import {RoleAuthProvider, useRoleAuth} from "@/hooks/useRoleAuth";
 import RoleBasedLayout from "./components/layout/RoleBasedLayout";
 import RoleBasedAuth from "./components/auth/RoleBasedAuth";
+import "@/i18n";
 
 // Common pages
 import Index from "./pages/Index";
 import About from "./pages/About";
 import News from "./pages/News";
+import Home from "./pages/Home"; // ✅ NEW Landing Page
 
 // User pages
 import UserDashboard from "./pages/user/UserDashboard";
 import UserAppointments from "./pages/user/UserAppointments";
 import UserChatbot from "./pages/user/UserChatbot";
 import UserSchedule from "./pages/user/UserSchedule";
+import UserLearningHub from "./pages/user/UserLearningHub";
 
 // Patient pages
 import PatientDashboard from "./pages/patient/PatientDashboard";
 import PatientAppointments from "./pages/patient/PatientAppointments";
 import PatientChatbot from "./pages/patient/PatientChatbot";
-import PatientProgress from "./pages/patient/PatientProgress"; // ✅ NEW
+import PatientProgress from "./pages/patient/PatientProgress";
+import PatientLearningHub from "./pages/patient/PatientLearningHub";
 
 // Doctor pages
 import DoctorDashboard from "./pages/doctor/DoctorDashboard";
 import DoctorAppointments from "./pages/doctor/DoctorAppointments";
 import DoctorChatbot from "./pages/doctor/DoctorChatbot";
 import DoctorLearningHub from "./pages/doctor/DoctorLearningHub";
+import DoctorSchedule from "./pages/doctor/DoctorSchedule";
 
 import NotFound from "./pages/NotFound";
+import ErrorBoundary from "@/components/ui/ErrorBoundary";
 
 const queryClient = new QueryClient();
 
 function AppRoutes() {
-  const { user, userRole, loading } = useRoleAuth();
+  const {user, userRole, loading} = useRoleAuth();
 
   if (loading) {
     return (
@@ -46,11 +52,11 @@ function AppRoutes() {
             <div className="w-4 h-4 bg-blue-500 rounded-full animate-bounce"></div>
             <div
               className="w-4 h-4 bg-purple-500 rounded-full animate-bounce"
-              style={{ animationDelay: "0.1s" }}
+              style={{animationDelay: "0.1s"}}
             ></div>
             <div
               className="w-4 h-4 bg-green-500 rounded-full animate-bounce"
-              style={{ animationDelay: "0.2s" }}
+              style={{animationDelay: "0.2s"}}
             ></div>
           </div>
           <p className="mt-2">Loading your dashboard...</p>
@@ -59,10 +65,18 @@ function AppRoutes() {
     );
   }
 
+  // ✅ If no user -> Show Landing Page + Auth routes
   if (!user) {
-    return <RoleBasedAuth />;
+    return (
+      <Routes>
+        <Route path="/" element={<Home />} /> {/* Landing Page */}
+        <Route path="/auth" element={<RoleBasedAuth />} /> {/* Login/Signup */}
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    );
   }
 
+  // ✅ If user is logged in -> Role-based dashboards
   return (
     <RoleBasedLayout>
       <Routes>
@@ -76,6 +90,7 @@ function AppRoutes() {
             <Route path="/dashboard" element={<UserDashboard />} />
             <Route path="/user/dashboard" element={<UserDashboard />} />
             <Route path="/user/appointments" element={<UserAppointments />} />
+            <Route path="/user/learning" element={<UserLearningHub />} />
             <Route path="/user/chatbot" element={<UserChatbot />} />
             <Route path="/user/schedule" element={<UserSchedule />} />
           </>
@@ -86,10 +101,13 @@ function AppRoutes() {
           <>
             <Route path="/dashboard" element={<PatientDashboard />} />
             <Route path="/patient/dashboard" element={<PatientDashboard />} />
-            <Route path="/patient/appointments" element={<PatientAppointments />} />
+            <Route
+              path="/patient/appointments"
+              element={<PatientAppointments />}
+            />
+            <Route path="/patient/learning" element={<PatientLearningHub />} />
             <Route path="/patient/chatbot" element={<PatientChatbot />} />
-            <Route path="/patient/schedule" element={<UserSchedule />} />
-            <Route path="/patient/progress" element={<PatientProgress />} /> {/* ✅ NEW */}
+            <Route path="/patient/progress" element={<PatientProgress />} />
           </>
         )}
 
@@ -98,9 +116,13 @@ function AppRoutes() {
           <>
             <Route path="/dashboard" element={<DoctorDashboard />} />
             <Route path="/doctor/dashboard" element={<DoctorDashboard />} />
-            <Route path="/doctor/appointments" element={<DoctorAppointments />} />
+            <Route
+              path="/doctor/appointments"
+              element={<DoctorAppointments />}
+            />
             <Route path="/doctor/chatbot" element={<DoctorChatbot />} />
             <Route path="/doctor/learning" element={<DoctorLearningHub />} />
+            <Route path="/doctor/schedule" element={<DoctorSchedule />} />
           </>
         )}
 
@@ -118,7 +140,9 @@ const App = () => (
           <TooltipProvider>
             <Toaster />
             <Sonner />
-            <AppRoutes />
+            <ErrorBoundary>
+              <AppRoutes />
+            </ErrorBoundary>
           </TooltipProvider>
         </RoleAuthProvider>
       </BrowserRouter>
