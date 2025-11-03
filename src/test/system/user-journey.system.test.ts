@@ -3,7 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { chatbotApi } from '@/lib/chatbotApi';
 
 vi.mock('@/integrations/supabase/client', () => ({
-  supabase: {
+  supabase: {    
     auth: {
       signUp: vi.fn(),
       signInWithPassword: vi.fn(),
