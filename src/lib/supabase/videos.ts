@@ -63,6 +63,15 @@ export async function listDoctorVideosByUploader() {
   return (data ?? []) as Video[];
 }
 
+export async function listAllVideos() {
+  const {data, error} = await supabase
+    .from("learning_videos")
+    .select("*")
+    .order("created_at", {ascending: false});
+  if (error) throw error;
+  return (data ?? []) as Video[];
+}
+
 export async function updateVideo(
   id: string,
   changes: Partial<Pick<Video, "title" | "description" | "category">>

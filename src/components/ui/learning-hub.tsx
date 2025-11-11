@@ -1,4 +1,4 @@
-import {useState, useEffect} from "react";
+import {useState, useEffect, useRef} from "react";
 import {motion} from "framer-motion";
 import {
   Card,
@@ -12,16 +12,23 @@ import {Button} from "@/components/ui/button";
 import {Input} from "@/components/ui/input";
 import {Search, Eye, BookOpen, X, Play} from "lucide-react";
 import {toast} from "@/hooks/use-toast";
+import {
+  uploadDoctorVideo,
+  listAllVideos,
+  deleteVideo,
+  type Video,
+} from "@/lib/supabase/videos";
 
 type LearningVideo = {
   id: string;
   title: string;
-  description?: string;
-  category?: string;
-  views?: number;
+  description?: string | null;
+  category?: string | null;
+  views?: number | null;
   youtube_url?: string;
-  manual_file?: string; // local file URL
+  video_url?: string; // Supabase video URL
   thumbnail?: string; // thumbnail data URL
+  thumbnail_url?: string | null; // Supabase thumbnail URL
 };
 
 // YouTube videos with proper titles
@@ -44,8 +51,6 @@ const sampleYouTubeVideos: {url: string; title: string}[] = [
   },
 ];
 
-const LOCAL_STORAGE_KEY = "learningHubVideos";
-
 const getYouTubeEmbedURL = (url: string) => {
   const videoIdMatch = url.match(/(?:v=|\/)([0-9A-Za-z_-]{11})/);
   return videoIdMatch
@@ -56,34 +61,6 @@ const getYouTubeEmbedURL = (url: string) => {
 const getYouTubeThumbnail = (url: string) => {
   const match = url.match(/(?:v=|\/)([0-9A-Za-z_-]{11})/);
   return match ? `https://img.youtube.com/vi/${match[1]}/hqdefault.jpg` : "";
-};
-
-// Extract first frame of manual video for thumbnail
-const generateVideoThumbnail = (file: File): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const video = document.createElement("video");
-    video.src = URL.createObjectURL(file);
-    video.muted = true;
-    video.playsInline = true;
-    video.preload = "metadata";
-
-    // Wait until we can seek to the first frame
-    video.addEventListener("loadedmetadata", () => {
-      // Seek to 0.1s to ensure first frame is not blank
-      video.currentTime = 0.1;
-    });
-
-    video.addEventListener("seeked", () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext("2d");
-      if (ctx) ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      resolve(canvas.toDataURL("image/png"));
-    });
-
-    video.addEventListener("error", (e) => reject(e));
-  });
 };
 export function LearningHub({readOnly = false}: {readOnly?: boolean}) {
   const [videos, setVideos] = useState<LearningVideo[]>([]);
@@ -98,34 +75,57 @@ export function LearningHub({readOnly = false}: {readOnly?: boolean}) {
     file: File | null;
   }>({title: "", description: "", youtube_url: "", file: null});
   const [modalVideo, setModalVideo] = useState<LearningVideo | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load videos on mount
   useEffect(() => {
-    const savedVideosStr = localStorage.getItem(LOCAL_STORAGE_KEY);
-    const savedVideos: LearningVideo[] = savedVideosStr
-      ? JSON.parse(savedVideosStr)
-      : [];
-
-    const ytVideos: LearningVideo[] = sampleYouTubeVideos.map((item, i) => ({
-      id: `yt-${i}`,
-      title: item.title,
-      description: "Educational video",
-      youtube_url: item.url,
-      category: "YouTube",
-      views: Math.floor(Math.random() * 5000),
-      thumbnail: getYouTubeThumbnail(item.url),
-    }));
-
-    setVideos([...ytVideos, ...savedVideos]);
+    loadVideos();
   }, []);
 
-  // Save manual videos only if not read-only
-  useEffect(() => {
-    if (!readOnly) {
-      const localVideos = videos.filter((v) => v.manual_file);
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(localVideos));
+  const loadVideos = async () => {
+    try {
+      // Fetch videos from Supabase
+      const supabaseVideos = await listAllVideos();
+      
+      // Convert Supabase videos to LearningVideo format
+      const dbVideos: LearningVideo[] = supabaseVideos.map((v) => ({
+        id: v.id,
+        title: v.title,
+        description: v.description,
+        category: v.category || "General",
+        views: v.views || 0,
+        video_url: v.video_url,
+        thumbnail: v.thumbnail_url || undefined,
+      }));
+
+      // Add sample YouTube videos
+      const ytVideos: LearningVideo[] = sampleYouTubeVideos.map((item, i) => ({
+        id: `yt-${i}`,
+        title: item.title,
+        description: "Educational video",
+        youtube_url: item.url,
+        category: "YouTube",
+        views: Math.floor(Math.random() * 5000),
+        thumbnail: getYouTubeThumbnail(item.url),
+      }));
+
+      setVideos([...ytVideos, ...dbVideos]);
+    } catch (error) {
+      console.error("Error loading videos:", error);
+      // Fallback to just YouTube videos if Supabase fails
+      const ytVideos: LearningVideo[] = sampleYouTubeVideos.map((item, i) => ({
+        id: `yt-${i}`,
+        title: item.title,
+        description: "Educational video",
+        youtube_url: item.url,
+        category: "YouTube",
+        views: Math.floor(Math.random() * 5000),
+        thumbnail: getYouTubeThumbnail(item.url),
+      }));
+      setVideos(ytVideos);
     }
-  }, [videos, readOnly]);
+  };
 
   // Filter videos
   useEffect(() => {
@@ -166,21 +166,53 @@ export function LearningHub({readOnly = false}: {readOnly?: boolean}) {
   };
 
   const handleAddManualVideo = async () => {
-    if (!newVideo.title || !newVideo.file) return;
-    const fileURL = URL.createObjectURL(newVideo.file);
-    const thumbnail = await generateVideoThumbnail(newVideo.file);
-    const manualVideo: LearningVideo = {
-      id: `manual-${Date.now()}`,
-      title: newVideo.title,
-      description: newVideo.description,
-      category: "Manual",
-      views: 0,
-      manual_file: fileURL,
-      thumbnail,
-    };
-    setVideos((prev) => [...prev, manualVideo]);
-    setNewVideo({title: "", description: "", youtube_url: "", file: null});
-    toast({title: "Added", description: "Manual video added"});
+    if (!newVideo.title || !newVideo.file) {
+      toast({
+        title: "Error",
+        description: "Please provide both title and video file",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // Upload to Supabase
+      const uploadedVideo = await uploadDoctorVideo(
+        "doctor-uploads",
+        newVideo.file,
+        newVideo.title,
+        newVideo.description || undefined,
+        "Manual"
+      );
+
+      // Add to local state
+      const newLocalVideo: LearningVideo = {
+        id: uploadedVideo.id,
+        title: uploadedVideo.title,
+        description: uploadedVideo.description,
+        category: uploadedVideo.category || "Manual",
+        views: uploadedVideo.views || 0,
+        video_url: uploadedVideo.video_url,
+        thumbnail: uploadedVideo.thumbnail_url || undefined,
+      };
+
+      setVideos((prev) => [newLocalVideo, ...prev]);
+      setNewVideo({title: "", description: "", youtube_url: "", file: null});
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+      toast({title: "Success", description: "Video uploaded successfully"});
+    } catch (error) {
+      console.error("Error uploading video:", error);
+      toast({
+        title: "Error",
+        description: "Failed to upload video. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleAddYouTubeVideo = () => {
@@ -279,6 +311,7 @@ export function LearningHub({readOnly = false}: {readOnly?: boolean}) {
                     }
                   />
                   <input
+                    ref={fileInputRef}
                     type="file"
                     accept="video/*"
                     onChange={(e) =>
@@ -288,7 +321,9 @@ export function LearningHub({readOnly = false}: {readOnly?: boolean}) {
                       }))
                     }
                   />
-                  <Button onClick={handleAddManualVideo}>Add Video</Button>
+                  <Button onClick={handleAddManualVideo} disabled={isLoading}>
+                    {isLoading ? "Uploading..." : "Add Video"}
+                  </Button>
                 </div>
               ) : (
                 <div className="grid gap-2 sm:grid-cols-2">
@@ -378,19 +413,29 @@ export function LearningHub({readOnly = false}: {readOnly?: boolean}) {
                   </div>
 
                   {/* Delete only visible if not readOnly */}
-                  {!readOnly && (
+                  {!readOnly && video.video_url && (
                     <Button
                       variant="destructive"
                       size="sm"
-                      onClick={() => {
+                      onClick={async () => {
                         if (confirm("Delete this video?")) {
-                          setVideos((prev) =>
-                            prev.filter((v) => v.id !== video.id)
-                          );
-                          toast({
-                            title: "Deleted",
-                            description: "Video removed",
-                          });
+                          try {
+                            await deleteVideo(video.id, video.video_url!);
+                            setVideos((prev) =>
+                              prev.filter((v) => v.id !== video.id)
+                            );
+                            toast({
+                              title: "Deleted",
+                              description: "Video removed successfully",
+                            });
+                          } catch (error) {
+                            console.error("Error deleting video:", error);
+                            toast({
+                              title: "Error",
+                              description: "Failed to delete video",
+                              variant: "destructive",
+                            });
+                          }
                         }
                       }}
                     >
@@ -428,10 +473,10 @@ export function LearningHub({readOnly = false}: {readOnly?: boolean}) {
                   allowFullScreen
                 />
               </div>
-            ) : modalVideo.manual_file ? (
+            ) : modalVideo.video_url ? (
               <video
                 className="w-full rounded-md"
-                src={modalVideo.manual_file}
+                src={modalVideo.video_url}
                 controls
                 autoPlay
               />
